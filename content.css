@@ -1,0 +1,191 @@
+/* ─── MagicHour Lens – Content Styles ─── */
+
+/* Hover highlight — shows which images are selectable */
+.mh-hoverable {
+  outline: 2px dashed rgba(168, 85, 247, 0.5) !important;
+  outline-offset: 2px !important;
+  cursor: pointer !important;
+  transition: outline 0.15s ease !important;
+}
+
+/* Selection highlight */
+img.mh-selected,
+[class].mh-selected {
+  outline: 3px solid #a855f7 !important;
+  outline-offset: 2px !important;
+  cursor: pointer !important;
+  transition: outline 0.15s ease !important;
+}
+
+/* Wrapper */
+.mh-wrapper {
+  position: relative !important;
+  line-height: 0 !important;
+}
+
+/* Loading overlay */
+.mh-loading-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(4px) !important;
+  z-index: 10000 !important;
+  border-radius: inherit !important;
+}
+
+.mh-spinner {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.mh-spinner-ring {
+  width: 40px !important;
+  height: 40px !important;
+  border: 3px solid rgba(168, 85, 247, 0.3) !important;
+  border-top-color: #a855f7 !important;
+  border-radius: 50% !important;
+  animation: mh-spin 0.8s linear infinite !important;
+}
+
+.mh-spinner-text {
+  color: #fff !important;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  letter-spacing: 0.02em !important;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5) !important;
+}
+
+@keyframes mh-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Result overlay */
+.mh-result-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 10001 !important;
+  opacity: 0 !important;
+  transform: scale(0.98) !important;
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
+  border-radius: inherit !important;
+  overflow: hidden !important;
+}
+
+.mh-result-overlay.mh-visible {
+  opacity: 1 !important;
+  transform: scale(1) !important;
+}
+
+.mh-result-overlay.mh-peek {
+  opacity: 0 !important;
+}
+
+.mh-result-overlay.mh-fade-out {
+  animation: mh-fade-out 0.25s ease forwards !important;
+}
+
+@keyframes mh-fade-out {
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+.mh-result-image {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+
+/* Action bar — always visible at bottom of result */
+.mh-action-bar {
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  display: flex !important;
+  gap: 4px !important;
+  padding: 6px !important;
+  background: linear-gradient(transparent, rgba(0,0,0,0.8)) !important;
+  z-index: 10002 !important;
+  justify-content: center !important;
+  flex-wrap: wrap !important;
+}
+
+.mh-download-btn,
+.mh-toggle-btn,
+.mh-close-btn {
+  all: unset !important;
+  padding: 4px 10px !important;
+  border-radius: 5px !important;
+  font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease, transform 0.1s ease !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+.mh-download-btn {
+  background: linear-gradient(135deg, #a855f7, #6366f1) !important;
+  color: #fff !important;
+}
+.mh-download-btn:hover {
+  filter: brightness(1.15) !important;
+  transform: scale(1.05) !important;
+}
+
+.mh-toggle-btn {
+  background: rgba(255,255,255,0.15) !important;
+  color: #fff !important;
+  backdrop-filter: blur(4px) !important;
+}
+.mh-toggle-btn:hover {
+  background: rgba(255,255,255,0.25) !important;
+}
+
+.mh-close-btn {
+  background: rgba(255,255,255,0.1) !important;
+  color: rgba(255,255,255,0.7) !important;
+}
+.mh-close-btn:hover {
+  background: rgba(239,68,68,0.6) !important;
+  color: #fff !important;
+}
+
+/* ─── Toast ─── */
+
+.mh-toast {
+  position: fixed !important;
+  bottom: 24px !important;
+  left: 50% !important;
+  transform: translateX(-50%) translateY(20px) !important;
+  padding: 10px 20px !important;
+  border-radius: 10px !important;
+  font: 500 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  color: #fff !important;
+  z-index: 2147483647 !important;
+  opacity: 0 !important;
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
+  pointer-events: none !important;
+  max-width: 400px !important;
+  text-align: center !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3) !important;
+}
+
+.mh-toast-error {
+  background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+}
+
+.mh-toast-success {
+  background: linear-gradient(135deg, #a855f7, #6366f1) !important;
+}
+
+.mh-toast-visible {
+  opacity: 1 !important;
+  transform: translateX(-50%) translateY(0) !important;
+}
