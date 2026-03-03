@@ -5,7 +5,6 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 let currentMode = "style";
 let selectedImageUrl = null;
-let selectedImageDataUrl = null;
 let isTransforming = false;
 
 // ─── Init ───
@@ -25,7 +24,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     chrome.storage.local.get(["_pendingImage", "_pendingTabId"], r)
   );
   if (pending._pendingImage) {
-    selectImage(pending._pendingImage, null, null);
+    selectImage(pending._pendingImage);
     window._mhTabId = pending._pendingTabId;
     chrome.storage.local.remove(["_pendingImage", "_pendingTabId"]);
   } else {
@@ -35,8 +34,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       try {
         const response = await chrome.tabs.sendMessage(tab.id, { action: "getSelectedImage" });
         if (response?.imageUrl) {
-          const preview = response.imageDataUrl || await captureImagePreview(tab.id, response.rect);
-          selectImage(response.imageUrl, preview, response.imageDataUrl);
+          const preview = await captureImagePreview(tab.id, response.rect);
+          selectImage(response.imageUrl, preview);
         }
       } catch {}
     }
@@ -52,27 +51,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Listen for image selection messages from content script
 chrome.runtime.onMessage.addListener(async (msg) => {
   if (msg.action === "imageSelected" && msg.imageUrl) {
-    const preview = msg.imageDataUrl;
-    if (!preview) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const captured = tab?.id ? await captureImagePreview(tab.id, msg.rect) : null;
-      selectImage(msg.imageUrl, captured, msg.imageDataUrl);
-    } else {
-      selectImage(msg.imageUrl, preview, msg.imageDataUrl);
-    }
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const preview = tab?.id ? await captureImagePreview(tab.id, msg.rect) : null;
+    selectImage(msg.imageUrl, preview);
   }
 });
 
 // ─── Image Selection ───
 
-function selectImage(url, previewDataUrl, imageDataUrl) {
+function selectImage(url, previewDataUrl) {
   selectedImageUrl = url;
-  selectedImageDataUrl = imageDataUrl || null;
-  if (previewDataUrl) {
-    $("#previewImg").src = previewDataUrl;
-  } else {
-    $("#previewImg").src = url;
-  }
+  $("#previewImg").src = previewDataUrl || url;
   $("#previewBox").classList.remove("empty");
   updateTransformButton();
 }
@@ -82,14 +71,12 @@ async function captureImagePreview(tabId, rect) {
   if (!rect || !rect.width || !rect.height) return null;
   try {
     const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: "png" });
-    // Get device pixel ratio from tab
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => window.devicePixelRatio || 1,
     });
     const dpr = results?.[0]?.result || 1;
 
-    // Crop the screenshot to the image area
     const img = new Image();
     await new Promise((resolve, reject) => {
       img.onload = resolve;
@@ -123,7 +110,6 @@ function setupModeButtons() {
       btn.classList.add("active");
       currentMode = btn.dataset.mode;
 
-      // Show/hide relevant options
       $$(".opt-group").forEach((g) => (g.style.display = "none"));
       const optGroup = $(`.opt-group[data-for="${currentMode}"]`);
       if (optGroup) optGroup.style.display = "block";
@@ -136,13 +122,11 @@ function setupModeButtons() {
 // ─── File Uploads ───
 
 function setupFileUploads() {
-  // Face upload
   $("#faceUploadArea").addEventListener("click", () => $("#faceUpload").click());
   $("#faceUpload").addEventListener("change", (e) => {
     handleFileUpload(e.target.files[0], "face");
   });
 
-  // Clothes upload
   $("#clothesUploadArea").addEventListener("click", () => $("#clothesUpload").click());
   $("#clothesUpload").addEventListener("change", (e) => {
     handleFileUpload(e.target.files[0], "clothes");
@@ -156,7 +140,6 @@ function handleFileUpload(file, type) {
     const dataUrl = e.target.result;
     showUploadPreview(type, dataUrl);
 
-    // Save to storage
     const key = type === "face" ? "faceImage" : "clothesImage";
     chrome.storage.local.set({ [key]: dataUrl });
   };
@@ -205,7 +188,6 @@ function setupSettings() {
 
 function setupTransform() {
   $("#transformBtn").addEventListener("click", () => startTransform());
-
   $("#transformAllBtn").addEventListener("click", () => startTransformAll());
 
   $("#clearBtn").addEventListener("click", async () => {
@@ -233,7 +215,6 @@ function updateTransformButton() {
 async function startTransform() {
   if (isTransforming || !selectedImageUrl) return;
 
-  // Get tab ID — either from context menu or from active tab
   let tabId = window._mhTabId;
   if (!tabId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -241,7 +222,6 @@ async function startTransform() {
   }
   if (!tabId) return;
 
-  // Build settings
   const stored = await getSettings();
   const settings = {
     apiKey: stored.apiKey,
@@ -253,7 +233,6 @@ async function startTransform() {
     clothesImage: stored.clothesImage,
   };
 
-  // Save current prompts
   chrome.storage.local.set({
     stylePrompt: settings.stylePrompt,
     customPrompt: settings.customPrompt,
@@ -264,29 +243,22 @@ async function startTransform() {
     return;
   }
 
-  // Show loading state in popup
   isTransforming = true;
   $("#transformBtn .btn-text").style.display = "none";
   $("#transformBtn .btn-loading").style.display = "inline-flex";
   $("#transformBtn").disabled = true;
 
   try {
-    // Tell content script to show loading spinner — await to ensure delivery
     await chrome.tabs.sendMessage(tabId, { action: "startTransform" });
-  } catch (e) {
-    // Content script may not be ready, continue anyway
-  }
+  } catch (e) {}
 
-  // Fire transform to background and AWAIT the acknowledgement
-  // Send data URL if available so background doesn't need to fetch from CDN
   await chrome.runtime.sendMessage({
     action: "transformFromPopup",
     tabId: tabId,
-    imageUrl: selectedImageDataUrl || selectedImageUrl,
+    imageUrl: selectedImageUrl,
     settings,
   });
 
-  // Close popup — background handles the rest and sends result to content script
   window.close();
 }
 
@@ -303,7 +275,6 @@ async function startTransformAll() {
     return;
   }
 
-  // Always use the style prompt for "Transform All"
   const stylePrompt = $("#stylePrompt")?.value || stored.stylePrompt || "Transform this image into anime style art";
 
   const settings = {
@@ -316,7 +287,6 @@ async function startTransformAll() {
     clothesImage: stored.clothesImage,
   };
 
-  // Save current prompts
   chrome.storage.local.set({
     stylePrompt: settings.stylePrompt,
     customPrompt: settings.customPrompt,
@@ -328,7 +298,6 @@ async function startTransformAll() {
     await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["content.css"] });
   } catch (e) {}
 
-  // Ask content script for all images on page
   let response;
   try {
     response = await chrome.tabs.sendMessage(tab.id, { action: "getAllImages" });
@@ -342,7 +311,6 @@ async function startTransformAll() {
     return;
   }
 
-  // Send all images to background for batch transform
   try {
     await chrome.runtime.sendMessage({
       action: "transformAllFromPopup",

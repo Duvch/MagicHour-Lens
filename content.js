@@ -70,16 +70,12 @@ document.addEventListener("click", function (e) {
 
     try {
       var r = found.el.getBoundingClientRect();
-      // Try to get image data URL from page context (avoids CDN fetch issues)
-      mhGetImageDataUrl(found.el, function (dataUrl) {
-        chrome.runtime.sendMessage({
-          action: "imageSelected",
-          imageUrl: found.url,
-          imageDataUrl: dataUrl,
-          rect: { x: r.x, y: r.y, width: r.width, height: r.height },
-          width: found.el.naturalWidth || found.el.offsetWidth,
-          height: found.el.naturalHeight || found.el.offsetHeight,
-        });
+      chrome.runtime.sendMessage({
+        action: "imageSelected",
+        imageUrl: found.url,
+        rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+        width: found.el.naturalWidth || found.el.offsetWidth,
+        height: found.el.naturalHeight || found.el.offsetHeight,
       });
     } catch (err) {}
   } catch (err) {}
@@ -113,31 +109,22 @@ function mhRemoveOutline(el) {
 
 try {
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
-    // Handle getSelectedImage separately — it needs async response
-    if (msg.action === "getSelectedImage") {
-      var imgUrl = mhSelectedImageUrl || (mhSelectedImage ? mhSelectedImage.src : null);
-      var rect = null;
-      if (mhSelectedImage) {
-        var r = mhSelectedImage.getBoundingClientRect();
-        rect = { x: r.x, y: r.y, width: r.width, height: r.height };
-      }
-      if (mhSelectedImage) {
-        mhGetImageDataUrl(mhSelectedImage, function (dataUrl) {
-          sendResponse({
-            imageUrl: imgUrl,
-            imageDataUrl: dataUrl,
-            rect: rect,
-            width: mhSelectedImage ? (mhSelectedImage.naturalWidth || mhSelectedImage.offsetWidth) : 0,
-            height: mhSelectedImage ? (mhSelectedImage.naturalHeight || mhSelectedImage.offsetHeight) : 0,
-          });
-        });
-        return true; // keep channel open for async response
-      }
-      sendResponse({ imageUrl: imgUrl, rect: rect, width: 0, height: 0 });
-      return false;
-    }
-
     try {
+      if (msg.action === "getSelectedImage") {
+        var imgUrl = mhSelectedImageUrl || (mhSelectedImage ? mhSelectedImage.src : null);
+        var rect = null;
+        if (mhSelectedImage) {
+          var r = mhSelectedImage.getBoundingClientRect();
+          rect = { x: r.x, y: r.y, width: r.width, height: r.height };
+        }
+        sendResponse({
+          imageUrl: imgUrl,
+          rect: rect,
+          width: mhSelectedImage ? (mhSelectedImage.naturalWidth || mhSelectedImage.offsetWidth) : 0,
+          height: mhSelectedImage ? (mhSelectedImage.naturalHeight || mhSelectedImage.offsetHeight) : 0,
+        });
+        return;
+      }
 
       if (msg.action === "getAllImages") {
         var imgs = document.querySelectorAll("img");
@@ -145,7 +132,6 @@ try {
         for (var i = 0; i < imgs.length; i++) {
           var img = imgs[i];
           if (!img.src || img.offsetWidth < 50 || img.offsetHeight < 50) continue;
-          // Skip tiny icons/avatars, only transform visible images
           results.push({
             url: img.currentSrc || img.src,
             index: i,
@@ -158,7 +144,6 @@ try {
       }
 
       if (msg.action === "transformAllStart") {
-        // Show loading on a specific image by index
         var allImgs = document.querySelectorAll("img");
         var targetImg = allImgs[msg.index];
         if (targetImg) mhShowLoading(targetImg);
@@ -167,7 +152,6 @@ try {
       }
 
       if (msg.action === "transformAllComplete") {
-        // Show result on a specific image by its original URL
         var allImgs2 = document.querySelectorAll("img");
         for (var k = 0; k < allImgs2.length; k++) {
           var src = allImgs2[k].currentSrc || allImgs2[k].src;
@@ -194,13 +178,13 @@ try {
       }
 
       if (msg.action === "selectImage" || msg.action === "contextMenuTransform") {
-        var imgs = document.querySelectorAll("img");
-        for (var i = 0; i < imgs.length; i++) {
-          if (imgs[i].src === msg.imageUrl) {
+        var imgs2 = document.querySelectorAll("img");
+        for (var j = 0; j < imgs2.length; j++) {
+          if (imgs2[j].src === msg.imageUrl) {
             if (mhSelectedImage) mhRemoveOutline(mhSelectedImage);
-            mhSelectedImage = imgs[i];
-            mhSelectedImageUrl = imgs[i].src;
-            mhApplyOutline(imgs[i], "3px solid #a855f7");
+            mhSelectedImage = imgs2[j];
+            mhSelectedImageUrl = imgs2[j].src;
+            mhApplyOutline(imgs2[j], "3px solid #a855f7");
             break;
           }
         }
@@ -280,58 +264,6 @@ async function mhStartContextMenuTransform(imageUrl) {
   }
 }
 
-// ─── Image Data URL Capture ───
-
-// Fetches image via page's own context (with cookies/auth), converts to data URL
-function mhGetImageDataUrl(imgEl, callback) {
-  var id = "mh_" + Math.random().toString(36).slice(2);
-  // Listen for result from injected script
-  function onMessage(event) {
-    if (event.data && event.data.type === id) {
-      window.removeEventListener("message", onMessage);
-      callback(event.data.dataUrl || null);
-    }
-  }
-  window.addEventListener("message", onMessage);
-
-  // Inject script into MAIN world to fetch with page's cookies
-  var script = document.createElement("script");
-  script.textContent = '(' + function (imgSrc, msgId) {
-    fetch(imgSrc, { credentials: "include" })
-      .then(function (r) { return r.blob(); })
-      .then(function (blob) {
-        var reader = new FileReader();
-        reader.onload = function () {
-          window.postMessage({ type: msgId, dataUrl: reader.result }, "*");
-        };
-        reader.readAsDataURL(blob);
-      })
-      .catch(function () {
-        // Fallback: try canvas
-        var img = document.querySelector('img[src="' + imgSrc.replace(/"/g, '\\"') + '"]');
-        if (!img) img = document.querySelector('img[src*="' + imgSrc.split("?")[0].slice(-30).replace(/"/g, '\\"') + '"]');
-        if (img) {
-          try {
-            var c = document.createElement("canvas");
-            c.width = img.naturalWidth || img.width;
-            c.height = img.naturalHeight || img.height;
-            c.getContext("2d").drawImage(img, 0, 0);
-            window.postMessage({ type: msgId, dataUrl: c.toDataURL("image/png") }, "*");
-            return;
-          } catch (e) {}
-        }
-        window.postMessage({ type: msgId, dataUrl: null }, "*");
-      });
-  } + '(' + JSON.stringify(imgEl.currentSrc || imgEl.src) + ',' + JSON.stringify(id) + '));';
-  document.documentElement.appendChild(script);
-  script.remove();
-
-  // Timeout fallback
-  setTimeout(function () {
-    window.removeEventListener("message", onMessage);
-  }, 5000);
-}
-
 // ─── Loading Overlay ───
 
 function mhShowLoading(imgEl) {
@@ -365,7 +297,6 @@ function mhShowResult(imgEl, resultUrl) {
   resultImg.src = resultUrl;
   resultImg.className = "mh-result-image";
 
-  // Bottom action bar — always visible
   var actionBar = document.createElement("div");
   actionBar.className = "mh-action-bar";
 
@@ -374,7 +305,6 @@ function mhShowResult(imgEl, resultUrl) {
   downloadBtn.textContent = "Download";
   downloadBtn.addEventListener("click", function (e) {
     e.stopPropagation();
-    // Fetch and save to trigger real download
     fetch(resultUrl)
       .then(function (r) { return r.blob(); })
       .then(function (blob) {
@@ -427,14 +357,6 @@ function mhShowResult(imgEl, resultUrl) {
   requestAnimationFrame(function () { overlay.classList.add("mh-visible"); });
 }
 
-function mhToolbarBtn(title, cls, fn) {
-  var btn = document.createElement("button");
-  btn.className = "mh-toolbar-btn " + cls;
-  btn.title = title;
-  btn.addEventListener("click", function (e) { e.stopPropagation(); fn(); });
-  return btn;
-}
-
 // ─── Wrapper ───
 
 function mhWrap(imgEl) {
@@ -446,7 +368,6 @@ function mhWrap(imgEl) {
   var cs = getComputedStyle(imgEl);
   wrapper.style.position = cs.position === "static" ? "relative" : cs.position;
   wrapper.style.display = cs.display === "inline" ? "inline-block" : cs.display;
-  // Ensure minimum size so overlay buttons are usable
   var w = Math.max(imgEl.offsetWidth, 200);
   var h = Math.max(imgEl.offsetHeight, 150);
   wrapper.style.width = w + "px";
