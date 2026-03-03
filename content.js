@@ -311,7 +311,7 @@ function mhShowResult(imgEl, resultUrl) {
         var url = URL.createObjectURL(blob);
         var a = document.createElement("a");
         a.href = url;
-        a.download = "magichour-transform.png";
+        a.download = "magichour-lens-transform.png";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -333,6 +333,14 @@ function mhShowResult(imgEl, resultUrl) {
     overlay.classList.remove("mh-peek");
   });
 
+  var shareBtn = document.createElement("button");
+  shareBtn.className = "mh-share-btn";
+  shareBtn.textContent = "Share";
+  shareBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    mhShareResult(resultUrl, resultImg);
+  });
+
   var closeBtn = document.createElement("button");
   closeBtn.className = "mh-close-btn";
   closeBtn.textContent = "Remove";
@@ -347,6 +355,7 @@ function mhShowResult(imgEl, resultUrl) {
   });
 
   actionBar.appendChild(downloadBtn);
+  actionBar.appendChild(shareBtn);
   actionBar.appendChild(toggleBtn);
   actionBar.appendChild(closeBtn);
   overlay.appendChild(resultImg);
@@ -395,6 +404,50 @@ function mhClearAll() {
     mhUnwrap(o.wrapper, o.imgEl);
   });
   mhOverlays = [];
+}
+
+// ─── Share ───
+
+function mhShareResult(resultUrl, resultImgEl) {
+  var REFERRAL_URL = "https://magichour.ai?ref=falconhacks";
+  var SHARE_TEXT = "Transformed with MagicHour Lens - AI image transforms right in your browser! Try it: " + REFERRAL_URL;
+
+  // Try native Web Share API with image (mobile + modern desktop)
+  if (navigator.share && navigator.canShare) {
+    fetch(resultUrl)
+      .then(function (r) { return r.blob(); })
+      .then(function (blob) {
+        var file = new File([blob], "magichour-transform.png", { type: "image/png" });
+        var shareData = { text: SHARE_TEXT, files: [file] };
+        if (navigator.canShare(shareData)) {
+          return navigator.share(shareData);
+        }
+        // Fallback if file sharing not supported
+        return navigator.share({ text: SHARE_TEXT, url: REFERRAL_URL });
+      })
+      .catch(function () {
+        mhCopyShareLink(SHARE_TEXT);
+      });
+  } else {
+    // Fallback: copy share text to clipboard
+    mhCopyShareLink(SHARE_TEXT);
+  }
+}
+
+function mhCopyShareLink(text) {
+  navigator.clipboard.writeText(text).then(function () {
+    mhShowToast("Share link copied to clipboard!", "success");
+  }).catch(function () {
+    // Final fallback
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    mhShowToast("Share link copied to clipboard!", "success");
+  });
 }
 
 // ─── Toast (only for errors) ───

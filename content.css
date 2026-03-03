@@ -118,6 +118,7 @@ img.mh-selected,
 }
 
 .mh-download-btn,
+.mh-share-btn,
 .mh-toggle-btn,
 .mh-close-btn {
   all: unset !important;
@@ -135,6 +136,15 @@ img.mh-selected,
   color: #fff !important;
 }
 .mh-download-btn:hover {
+  filter: brightness(1.15) !important;
+  transform: scale(1.05) !important;
+}
+
+.mh-share-btn {
+  background: linear-gradient(135deg, #6366f1, #3b82f6) !important;
+  color: #fff !important;
+}
+.mh-share-btn:hover {
   filter: brightness(1.15) !important;
   transform: scale(1.05) !important;
 }
