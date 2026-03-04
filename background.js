@@ -111,6 +111,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
+  // Auto face swap from content script
+  if (msg.action === "autoFaceSwap") {
+    chrome.storage.local.get(["apiKey", "autoFaceImage"], (data) => {
+      if (!data.apiKey || !data.autoFaceImage) {
+        sendResponse({ error: "API key or face image not configured." });
+        return;
+      }
+      (async () => {
+        try {
+          const sourceFilePath = await uploadFromUrl(data.apiKey, msg.imageUrl);
+          const faceFilePath = await uploadFromUrl(data.apiKey, data.autoFaceImage);
+          const projectId = await apiFaceSwap(data.apiKey, sourceFilePath, faceFilePath);
+          const result = await pollForResult(data.apiKey, projectId);
+          sendResponse({ resultUrl: result.downloads?.[0]?.url });
+        } catch (err) {
+          sendResponse({ error: err.message });
+        }
+      })();
+    });
+    return true; // keep message channel open for async response
+  }
+
   // Transform from content script (context menu flow)
   if (msg.action === "transform") {
     handleTransform(msg).then(sendResponse).catch((err) =>
@@ -121,7 +143,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "getSettings") {
     chrome.storage.local.get(
-      ["apiKey", "mode", "stylePrompt", "faceImage", "customPrompt", "model", "clothesImage"],
+      ["apiKey", "mode", "stylePrompt", "faceImage", "customPrompt", "model", "clothesImage", "autoFaceSwap", "autoMinSize", "autoFaceImage"],
       sendResponse
     );
     return true;

@@ -199,3 +199,36 @@ img.mh-selected,
   opacity: 1 !important;
   transform: translateX(-50%) translateY(0) !important;
 }
+
+/* ─── Auto Face Swap Badge ─── */
+
+.mh-auto-badge {
+  position: absolute !important;
+  bottom: 6px !important;
+  right: 6px !important;
+  width: 10px !important;
+  height: 10px !important;
+  background: linear-gradient(135deg, #a855f7, #6366f1) !important;
+  border-radius: 50% !important;
+  border: 2px solid rgba(255,255,255,0.8) !important;
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+  cursor: help !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+}
+
+.mh-auto-badge:hover::after {
+  content: "Face swapped by MagicHour Lens" !important;
+  position: absolute !important;
+  bottom: 100% !important;
+  right: 0 !important;
+  margin-bottom: 6px !important;
+  padding: 4px 8px !important;
+  border-radius: 4px !important;
+  background: rgba(0,0,0,0.85) !important;
+  color: #fff !important;
+  font: 500 11px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  white-space: nowrap !important;
+  z-index: 10001 !important;
+  pointer-events: none !important;
+}

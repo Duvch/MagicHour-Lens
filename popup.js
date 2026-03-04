@@ -19,6 +19,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (settings.faceImage) showUploadPreview("face", settings.faceImage);
   if (settings.clothesImage) showUploadPreview("clothes", settings.clothesImage);
 
+  // Auto Face Swap settings
+  if (settings.autoFaceSwap) {
+    $("#autoFaceSwapToggle").checked = true;
+    $("#autoFaceSettings").style.display = "block";
+    $("#autoMinSizeRow").style.display = "block";
+    $("#autoStatusRow").style.display = "block";
+  }
+  if (settings.autoMinSize) $("#autoMinSize").value = settings.autoMinSize;
+  if (settings.autoFaceImage) showUploadPreview("autoFace", settings.autoFaceImage);
+
   // Check for pending image from context menu
   const pending = await new Promise((r) =>
     chrome.storage.local.get(["_pendingImage", "_pendingTabId"], r)
@@ -131,6 +141,11 @@ function setupFileUploads() {
   $("#clothesUpload").addEventListener("change", (e) => {
     handleFileUpload(e.target.files[0], "clothes");
   });
+
+  $("#autoFaceUploadArea").addEventListener("click", () => $("#autoFaceUpload").click());
+  $("#autoFaceUpload").addEventListener("change", (e) => {
+    handleFileUpload(e.target.files[0], "autoFace");
+  });
 }
 
 function handleFileUpload(file, type) {
@@ -140,7 +155,8 @@ function handleFileUpload(file, type) {
     const dataUrl = e.target.result;
     showUploadPreview(type, dataUrl);
 
-    const key = type === "face" ? "faceImage" : "clothesImage";
+    const keyMap = { face: "faceImage", clothes: "clothesImage", autoFace: "autoFaceImage" };
+    const key = keyMap[type] || "faceImage";
     chrome.storage.local.set({ [key]: dataUrl });
   };
   reader.readAsDataURL(file);
@@ -173,12 +189,38 @@ function setupSettings() {
     input.type = input.type === "password" ? "text" : "password";
   });
 
+  // Auto Face Swap toggle — show/hide sub-settings
+  $("#autoFaceSwapToggle").addEventListener("change", () => {
+    const on = $("#autoFaceSwapToggle").checked;
+    $("#autoFaceSettings").style.display = on ? "block" : "none";
+    $("#autoMinSizeRow").style.display = on ? "block" : "none";
+    $("#autoStatusRow").style.display = on ? "block" : "none";
+  });
+
+  // Check Auto Swap Status
+  $("#checkAutoStatus").addEventListener("click", () => checkAutoStatus());
+
   $("#saveSettings").addEventListener("click", async () => {
+    const autoFaceSwap = $("#autoFaceSwapToggle").checked;
     const settings = {
       apiKey: $("#apiKeyInput").value.trim(),
       model: $("#modelSelect").value,
+      autoFaceSwap,
+      autoMinSize: parseInt($("#autoMinSize").value, 10) || 200,
     };
     await saveSettings(settings);
+
+    // Notify active tab content script about toggle change
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, {
+          action: "autoFaceSwapToggle",
+          enabled: autoFaceSwap,
+        }).catch(() => {});
+      }
+    } catch {}
+
     $("#settingsView").style.display = "none";
     $("#mainView").style.display = "block";
   });
@@ -326,12 +368,72 @@ async function startTransformAll() {
   window.close();
 }
 
+// ─── Auto Status Check ───
+
+async function checkAutoStatus() {
+  const panel = $("#autoStatusPanel");
+  panel.style.display = "block";
+  panel.innerHTML = '<span style="color:#888">Checking...</span>';
+
+  const settings = await getSettings();
+  const lines = [];
+
+  function line(ok, text) {
+    const cls = ok === true ? "status-ok" : ok === false ? "status-fail" : "status-warn";
+    const icon = ok === true ? "\u2713" : ok === false ? "\u2717" : "\u26A0";
+    lines.push(`<div class="status-line ${cls}"><span class="status-icon">${icon}</span> ${text}</div>`);
+  }
+
+  // Check API key
+  if (settings.apiKey) {
+    line(true, "API key configured");
+  } else {
+    line(false, "API key missing — set it above");
+  }
+
+  // Check auto mode
+  if (settings.autoFaceSwap) {
+    line(true, "Auto Face Swap enabled");
+  } else {
+    line(false, "Auto Face Swap is OFF — enable & save");
+  }
+
+  // Check face image
+  if (settings.autoFaceImage) {
+    line(true, "Face photo uploaded");
+  } else {
+    line(false, "No face photo — upload one above");
+  }
+
+  // Check content script connection & page images
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      const response = await chrome.tabs.sendMessage(tab.id, { action: "getAutoStatus" });
+      if (response) {
+        line(true, `Content script connected`);
+        line(response.enabled ? true : null, `Auto scan: ${response.enabled ? "running" : "not running"}`);
+        line(true, `Images on page: ${response.totalImages}`);
+        line(response.eligible > 0 ? true : null, `Eligible (above ${response.minSize}px): ${response.eligible}`);
+        if (response.queued > 0) line(null, `Queued: ${response.queued}`);
+        if (response.processing > 0) line(null, `Processing: ${response.processing}`);
+        if (response.done > 0) line(true, `Swapped: ${response.done}`);
+        if (response.errors > 0) line(false, `Errors: ${response.errors}`);
+      }
+    }
+  } catch {
+    line(false, "Cannot reach content script — try refreshing the page");
+  }
+
+  panel.innerHTML = lines.join("");
+}
+
 // ─── Storage Helpers ───
 
 function getSettings() {
   return new Promise((resolve) => {
     chrome.storage.local.get(
-      ["apiKey", "mode", "stylePrompt", "faceImage", "customPrompt", "model", "clothesImage"],
+      ["apiKey", "mode", "stylePrompt", "faceImage", "customPrompt", "model", "clothesImage", "autoFaceSwap", "autoMinSize", "autoFaceImage"],
       (data) => resolve(data || {})
     );
   });

@@ -364,6 +364,132 @@ select {
   text-decoration: underline;
 }
 
+/* ─── Toggle Switch ─── */
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle-row > label:first-child {
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #333;
+  border-radius: 20px;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  bottom: 3px;
+  background: #888;
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: linear-gradient(135deg, #a855f7, #6366f1);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.setting-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #555;
+}
+
+/* ─── Auto Status Check ─── */
+
+.status-check-btn {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  color: #c084fc;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.status-check-btn:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+.auto-status-panel {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #1a1a24;
+  border: 1px solid rgba(255,255,255,0.06);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.auto-status-panel .status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.auto-status-panel .status-ok {
+  color: #4ade80;
+}
+
+.auto-status-panel .status-fail {
+  color: #f87171;
+}
+
+.auto-status-panel .status-warn {
+  color: #fbbf24;
+}
+
+.auto-status-panel .status-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
 /* ─── Footer ─── */
 
 .footer {

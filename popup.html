@@ -141,6 +141,40 @@
       </select>
     </div>
 
+    <div class="setting-row">
+      <div class="toggle-row">
+        <label for="autoFaceSwapToggle">Auto Face Swap</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoFaceSwapToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <span class="setting-hint">Automatically face-swap images on every page</span>
+    </div>
+
+    <div class="setting-row" id="autoFaceSettings" style="display:none">
+      <label>Face Photo for Auto Swap</label>
+      <div class="upload-area" id="autoFaceUploadArea">
+        <input type="file" id="autoFaceUpload" accept="image/*" hidden>
+        <img id="autoFacePreview" class="upload-preview" style="display:none">
+        <span class="upload-label">Click to upload your face</span>
+      </div>
+    </div>
+
+    <div class="setting-row" id="autoMinSizeRow" style="display:none">
+      <label for="autoMinSize">Minimum Image Size</label>
+      <select id="autoMinSize">
+        <option value="100">100px</option>
+        <option value="150">150px</option>
+        <option value="200" selected>200px (default)</option>
+      </select>
+    </div>
+
+    <div class="setting-row" id="autoStatusRow" style="display:none">
+      <button id="checkAutoStatus" class="status-check-btn">Check Auto Swap Status</button>
+      <div id="autoStatusPanel" class="auto-status-panel" style="display:none"></div>
+    </div>
+
     <button id="saveSettings" class="transform-btn">Save Settings</button>
     <button id="backToMain" class="clear-btn">Back</button>
   </div>

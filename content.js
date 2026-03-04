@@ -220,6 +220,50 @@ try {
         return;
       }
 
+      if (msg.action === "getAutoStatus") {
+        chrome.storage.local.get(["autoMinSize"], function (d) {
+          var minSize = d.autoMinSize || 200;
+          var allImgs = document.querySelectorAll("img");
+          var eligible = 0;
+          var queued = 0;
+          var processing = 0;
+          var done = 0;
+          var errors = 0;
+          for (var si = 0; si < allImgs.length; si++) {
+            var simg = allImgs[si];
+            var sw = simg.naturalWidth || simg.offsetWidth;
+            var sh = simg.naturalHeight || simg.offsetHeight;
+            if (sw >= minSize || sh >= minSize) eligible++;
+            var attr = simg.getAttribute("data-mh-auto");
+            if (attr === "queued") queued++;
+            else if (attr === "processing") processing++;
+            else if (attr === "done") done++;
+            else if (attr === "error") errors++;
+          }
+          sendResponse({
+            enabled: mhAutoEnabled,
+            totalImages: allImgs.length,
+            eligible: eligible,
+            minSize: minSize,
+            queued: queued,
+            processing: processing,
+            done: done,
+            errors: errors,
+          });
+        });
+        return true;
+      }
+
+      if (msg.action === "autoFaceSwapToggle") {
+        if (msg.enabled) {
+          mhAutoStart();
+        } else {
+          mhAutoStop();
+        }
+        sendResponse({ ok: true });
+        return;
+      }
+
       if (msg.action === "clearAllOverlays") {
         mhClearAll();
         sendResponse({ ok: true });
@@ -449,6 +493,183 @@ function mhCopyShareLink(text) {
     mhShowToast("Share link copied to clipboard!", "success");
   });
 }
+
+// ─── Auto Face Swap Engine ───
+
+var mhAutoEnabled = false;
+var mhAutoObserver = null;
+var mhAutoQueue = [];
+var mhAutoActive = 0;
+var mhAutoMaxConcurrent = 2;
+
+function mhAutoInit() {
+  chrome.storage.local.get(["autoFaceSwap"], function (data) {
+    if (data.autoFaceSwap) {
+      mhAutoStart();
+    }
+  });
+
+  // React to storage changes (toggle from another tab or popup)
+  chrome.storage.onChanged.addListener(function (changes) {
+    if (changes.autoFaceSwap) {
+      if (changes.autoFaceSwap.newValue) {
+        mhAutoStart();
+      } else {
+        mhAutoStop();
+      }
+    }
+  });
+}
+
+function mhAutoStart() {
+  if (mhAutoEnabled) return;
+  mhAutoEnabled = true;
+  console.log("[MH Auto] Started — scanning page for images...");
+  mhAutoScan();
+  mhAutoObserve();
+}
+
+function mhAutoStop() {
+  mhAutoEnabled = false;
+  mhAutoQueue = [];
+  if (mhAutoObserver) {
+    mhAutoObserver.disconnect();
+    mhAutoObserver = null;
+  }
+  console.log("[MH Auto] Stopped");
+}
+
+function mhAutoScan() {
+  if (!mhAutoEnabled) return;
+  chrome.storage.local.get(["autoMinSize"], function (data) {
+    var minSize = data.autoMinSize || 200;
+    var imgs = document.querySelectorAll("img");
+    console.log("[MH Auto] Scanning " + imgs.length + " images (min size: " + minSize + "px)");
+    var queued = 0;
+    for (var i = 0; i < imgs.length; i++) {
+      var before = mhAutoQueue.length;
+      mhAutoMaybeQueue(imgs[i], minSize);
+      if (mhAutoQueue.length > before) queued++;
+    }
+    console.log("[MH Auto] Queued " + queued + " images for face swap");
+  });
+}
+
+function mhAutoMaybeQueue(img, minSize) {
+  if (!mhAutoEnabled) return;
+  if (!img.src || img.src.startsWith("data:") || img.src.startsWith("blob:")) return;
+  if (img.getAttribute("data-mh-auto")) return;
+
+  // Check size using both natural and offset dimensions
+  var w = img.naturalWidth || img.offsetWidth;
+  var h = img.naturalHeight || img.offsetHeight;
+
+  if (w >= minSize || h >= minSize) {
+    img.setAttribute("data-mh-auto", "queued");
+    mhAutoQueue.push(img);
+    mhAutoProcessNext();
+  } else if (!img.complete) {
+    // Image not loaded yet — wait for it and re-check
+    img.addEventListener("load", function onLoad() {
+      img.removeEventListener("load", onLoad);
+      if (img.getAttribute("data-mh-auto")) return; // already queued
+      var lw = img.naturalWidth || img.offsetWidth;
+      var lh = img.naturalHeight || img.offsetHeight;
+      if (lw >= minSize || lh >= minSize) {
+        img.setAttribute("data-mh-auto", "queued");
+        mhAutoQueue.push(img);
+        mhAutoProcessNext();
+      }
+    });
+  }
+}
+
+function mhAutoProcessNext() {
+  if (!mhAutoEnabled) return;
+  if (mhAutoActive >= mhAutoMaxConcurrent) return;
+  if (mhAutoQueue.length === 0) return;
+
+  var img = mhAutoQueue.shift();
+  if (!img || !img.isConnected) {
+    mhAutoProcessNext();
+    return;
+  }
+
+  mhAutoActive++;
+  img.setAttribute("data-mh-auto", "processing");
+
+  var imageUrl = img.currentSrc || img.src;
+  console.log("[MH Auto] Processing:", imageUrl.substring(0, 80));
+
+  chrome.runtime.sendMessage(
+    { action: "autoFaceSwap", imageUrl: imageUrl },
+    function (response) {
+      mhAutoActive--;
+      if (chrome.runtime.lastError) {
+        console.error("[MH Auto] Message error:", chrome.runtime.lastError.message);
+        img.setAttribute("data-mh-auto", "error");
+        mhAutoProcessNext();
+        return;
+      }
+      if (response && response.resultUrl) {
+        console.log("[MH Auto] Swapped:", imageUrl.substring(0, 60));
+        img.setAttribute("data-mh-original-src", imageUrl);
+        img.src = response.resultUrl;
+        img.setAttribute("data-mh-auto", "done");
+        mhAutoAddBadge(img);
+      } else {
+        console.warn("[MH Auto] Failed:", response?.error || "no result");
+        img.setAttribute("data-mh-auto", "error");
+      }
+      mhAutoProcessNext();
+    }
+  );
+}
+
+function mhAutoAddBadge(img) {
+  var parent = img.parentElement;
+  if (!parent) return;
+
+  // Ensure parent is positioned
+  var cs = getComputedStyle(parent);
+  if (cs.position === "static") {
+    parent.style.position = "relative";
+  }
+
+  var badge = document.createElement("div");
+  badge.className = "mh-auto-badge";
+  badge.title = "Face swapped by MagicHour Lens";
+  parent.appendChild(badge);
+}
+
+function mhAutoObserve() {
+  if (mhAutoObserver) return;
+  mhAutoObserver = new MutationObserver(function (mutations) {
+    if (!mhAutoEnabled) return;
+    chrome.storage.local.get(["autoMinSize"], function (data) {
+      var minSize = data.autoMinSize || 200;
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var node = added[j];
+          if (node.nodeType !== 1) continue;
+          if (node.tagName === "IMG") {
+            mhAutoMaybeQueue(node, minSize);
+          } else if (node.querySelectorAll) {
+            var imgs = node.querySelectorAll("img");
+            for (var k = 0; k < imgs.length; k++) {
+              mhAutoMaybeQueue(imgs[k], minSize);
+            }
+          }
+        }
+      }
+    });
+  });
+  mhAutoObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// Initialize auto mode on load
+mhAutoInit();
 
 // ─── Toast (only for errors) ───
 
