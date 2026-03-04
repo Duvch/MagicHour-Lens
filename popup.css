@@ -490,6 +490,25 @@ select {
   flex-shrink: 0;
 }
 
+/* ─── Credits Info ─── */
+
+.credits-info {
+  text-align: center;
+  padding: 6px 16px;
+  font-size: 11px;
+  color: #888;
+}
+
+.credits-info .credits-count {
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.credits-info .credits-limit {
+  color: #f87171;
+  font-weight: 600;
+}
+
 /* ─── Footer ─── */
 
 .footer {

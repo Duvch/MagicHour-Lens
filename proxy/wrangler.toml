@@ -1,0 +1,16 @@
+name = "magichour-lens-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+DAILY_LIMIT = "10"
+
+# Create KV namespace first:
+#   wrangler kv namespace create CREDITS
+# Then paste the id below.
+[[kv_namespaces]]
+binding = "CREDITS"
+id = "69adccbf36d74c6db9e1901a1f5f20f7"
+
+# After deploy, set the secret:
+#   wrangler secret put MH_API_KEY

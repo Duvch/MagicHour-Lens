@@ -12,6 +12,7 @@
   "host_permissions": [
     "https://api.magichour.ai/*",
     "https://videos.magichour.ai/*",
+    "https://magichour-lens-proxy.divshiv87.workers.dev/*",
     "<all_urls>"
   ],
   "background": {

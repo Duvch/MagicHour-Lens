@@ -1,10 +1,20 @@
 // ─── MagicHour Lens – Background Service Worker ───
 
 const API_BASE = "https://api.magichour.ai/v1";
+const PROXY_BASE = "https://magichour-lens-proxy.divshiv87.workers.dev/v1";
+const PROXY_CREDITS_URL = "https://magichour-lens-proxy.divshiv87.workers.dev/api/credits";
 
-// ─── Context Menu ───
+// ─── Install ID ───
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // Generate a stable install ID for free-tier tracking
+  const data = await chrome.storage.local.get("installId");
+  if (!data.installId) {
+    const installId = crypto.randomUUID();
+    await chrome.storage.local.set({ installId });
+  }
+
+  // Context menu
   chrome.contextMenus.create({
     id: "mh-transform",
     title: "Transform with MagicHour",
@@ -12,15 +22,49 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// ─── API Config Helper ───
+
+async function getApiConfig() {
+  const data = await chrome.storage.local.get(["apiKey", "installId"]);
+  if (data.apiKey) {
+    // Direct mode — user's own key
+    return {
+      baseUrl: API_BASE,
+      headers: { Authorization: "Bearer " + data.apiKey },
+      isDirect: true,
+    };
+  }
+  // Proxy mode — free tier
+  return {
+    baseUrl: PROXY_BASE,
+    headers: { "X-MH-Install-Id": data.installId || "unknown" },
+    isDirect: false,
+  };
+}
+
+async function getCredits() {
+  const data = await chrome.storage.local.get("installId");
+  if (!data.installId) return { remaining: 0, limit: 10, used: 0 };
+  try {
+    const res = await fetch(PROXY_CREDITS_URL, {
+      headers: { "X-MH-Install-Id": data.installId },
+    });
+    if (!res.ok) return { remaining: 0, limit: 10, used: 0 };
+    return res.json();
+  } catch {
+    return { remaining: 0, limit: 10, used: 0 };
+  }
+}
+
+// ─── Context Menu ───
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "mh-transform" && info.srcUrl) {
-    // Store the image URL and tab ID so the popup can pick it up
     await chrome.storage.local.set({
       _pendingImage: info.srcUrl,
       _pendingTabId: tab.id,
     });
 
-    // Ensure content script is injected
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -32,7 +76,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       });
     } catch (e) {}
 
-    // Select the image in the content script
     try {
       await chrome.tabs.sendMessage(tab.id, {
         action: "selectImage",
@@ -40,11 +83,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       });
     } catch (e) {}
 
-    // Open the extension popup
     try {
       await chrome.action.openPopup();
     } catch (e) {
-      // Fallback for older Chrome — just notify user
       console.warn("[MH] Could not open popup:", e.message);
     }
   }
@@ -53,11 +94,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // ─── Message Router ───
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // Transform request — from popup or content script
-  // Background handles the ENTIRE flow and sends result directly to content script
   if (msg.action === "transformFromPopup") {
     const tabId = msg.tabId;
-    sendResponse({ ok: true }); // Acknowledge immediately so popup can close
+    sendResponse({ ok: true });
 
     handleTransform(msg)
       .then((result) => {
@@ -73,22 +112,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }).catch(() => {});
       });
 
-    return false; // Already sent response
+    return false;
   }
 
-  // Transform ALL images on page
   if (msg.action === "transformAllFromPopup") {
     const tabId = msg.tabId;
     const images = msg.images;
     const settings = msg.settings;
     sendResponse({ ok: true });
 
-    // Show loading on all images
     for (const img of images) {
       chrome.tabs.sendMessage(tabId, { action: "transformAllStart", index: img.index }).catch(() => {});
     }
 
-    // Process images sequentially to avoid API rate limits
     (async () => {
       for (const img of images) {
         try {
@@ -111,29 +147,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  // Auto face swap from content script
   if (msg.action === "autoFaceSwap") {
-    chrome.storage.local.get(["apiKey", "autoFaceImage"], (data) => {
-      if (!data.apiKey || !data.autoFaceImage) {
-        sendResponse({ error: "API key or face image not configured." });
-        return;
-      }
-      (async () => {
-        try {
-          const sourceFilePath = await uploadFromUrl(data.apiKey, msg.imageUrl);
-          const faceFilePath = await uploadFromUrl(data.apiKey, data.autoFaceImage);
-          const projectId = await apiFaceSwap(data.apiKey, sourceFilePath, faceFilePath);
-          const result = await pollForResult(data.apiKey, projectId);
-          sendResponse({ resultUrl: result.downloads?.[0]?.url });
-        } catch (err) {
-          sendResponse({ error: err.message });
+    (async () => {
+      try {
+        const config = await getApiConfig();
+        const data = await chrome.storage.local.get("autoFaceImage");
+        if (!data.autoFaceImage) {
+          sendResponse({ error: "Face image not configured." });
+          return;
         }
-      })();
-    });
-    return true; // keep message channel open for async response
+        const sourceFilePath = await uploadFromUrl(config, msg.imageUrl);
+        const faceFilePath = await uploadFromUrl(config, data.autoFaceImage);
+        const projectId = await apiFaceSwap(config, sourceFilePath, faceFilePath);
+        const result = await pollForResult(config, projectId);
+        sendResponse({ resultUrl: result.downloads?.[0]?.url });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
   }
 
-  // Transform from content script (context menu flow)
   if (msg.action === "transform") {
     handleTransform(msg).then(sendResponse).catch((err) =>
       sendResponse({ error: err.message })
@@ -153,32 +187,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.set(msg.settings, () => sendResponse({ ok: true }));
     return true;
   }
+
+  if (msg.action === "getCredits") {
+    getCredits().then(sendResponse);
+    return true;
+  }
 });
 
 // ─── Core Transform Pipeline ───
 
 async function handleTransform({ imageUrl, settings }) {
-  const apiKey = settings.apiKey;
-  if (!apiKey) throw new Error("API key not configured. Open extension settings.");
+  // Build config: use user's key if provided, otherwise proxy
+  let config;
+  if (settings && settings.apiKey) {
+    config = {
+      baseUrl: API_BASE,
+      headers: { Authorization: "Bearer " + settings.apiKey },
+      isDirect: true,
+    };
+  } else {
+    config = await getApiConfig();
+  }
 
-  const mode = settings.mode || "style";
+  const mode = (settings && settings.mode) || "style";
 
-  // Always fetch and upload the image to MagicHour storage
-  const sourceFilePath = await uploadFromUrl(apiKey, imageUrl);
+  const sourceFilePath = await uploadFromUrl(config, imageUrl);
 
   let projectId;
 
   switch (mode) {
     case "faceswap": {
       if (!settings.faceImage) throw new Error("Upload your face photo in settings first.");
-      const faceFilePath = await uploadFromUrl(apiKey, settings.faceImage);
-      projectId = await apiFaceSwap(apiKey, sourceFilePath, faceFilePath);
+      const faceFilePath = await uploadFromUrl(config, settings.faceImage);
+      projectId = await apiFaceSwap(config, sourceFilePath, faceFilePath);
       break;
     }
 
     case "style":
       projectId = await apiImageEdit(
-        apiKey,
+        config,
         sourceFilePath,
         settings.stylePrompt || "Transform this image into anime style art",
         settings.model
@@ -187,7 +234,7 @@ async function handleTransform({ imageUrl, settings }) {
 
     case "edit":
       projectId = await apiImageEdit(
-        apiKey,
+        config,
         sourceFilePath,
         settings.customPrompt || "Enhance this image",
         settings.model
@@ -195,17 +242,17 @@ async function handleTransform({ imageUrl, settings }) {
       break;
 
     case "background":
-      projectId = await apiBackgroundRemove(apiKey, sourceFilePath);
+      projectId = await apiBackgroundRemove(config, sourceFilePath);
       break;
 
     case "upscale":
-      projectId = await apiUpscale(apiKey, sourceFilePath);
+      projectId = await apiUpscale(config, sourceFilePath);
       break;
 
     case "clothes": {
       if (!settings.clothesImage) throw new Error("Upload a clothing reference image in settings first.");
-      const clothesFilePath = await uploadFromUrl(apiKey, settings.clothesImage);
-      projectId = await apiClothesChange(apiKey, sourceFilePath, clothesFilePath);
+      const clothesFilePath = await uploadFromUrl(config, settings.clothesImage);
+      projectId = await apiClothesChange(config, sourceFilePath, clothesFilePath);
       break;
     }
 
@@ -213,21 +260,21 @@ async function handleTransform({ imageUrl, settings }) {
       throw new Error("Unknown mode: " + mode);
   }
 
-  const result = await pollForResult(apiKey, projectId);
+  const result = await pollForResult(config, projectId);
   return { resultUrl: result.downloads?.[0]?.url, projectId };
 }
 
 // ─── MagicHour API Calls ───
 
-async function apiFaceSwap(apiKey, targetFilePath, sourceFilePath) {
-  const res = await apiCall(apiKey, "/face-swap-photo", {
+async function apiFaceSwap(config, targetFilePath, sourceFilePath) {
+  const res = await apiCall(config, "/face-swap-photo", {
     assets: { target_file_path: targetFilePath, source_file_path: sourceFilePath },
   });
   return res.id;
 }
 
-async function apiImageEdit(apiKey, imageFilePath, prompt, model) {
-  const res = await apiCall(apiKey, "/ai-image-editor", {
+async function apiImageEdit(config, imageFilePath, prompt, model) {
+  const res = await apiCall(config, "/ai-image-editor", {
     style: { prompt: prompt },
     assets: { image_file_paths: [imageFilePath] },
     image_count: 1,
@@ -236,15 +283,15 @@ async function apiImageEdit(apiKey, imageFilePath, prompt, model) {
   return res.id;
 }
 
-async function apiBackgroundRemove(apiKey, imageFilePath) {
-  const res = await apiCall(apiKey, "/image-background-remover", {
+async function apiBackgroundRemove(config, imageFilePath) {
+  const res = await apiCall(config, "/image-background-remover", {
     assets: { image_file_path: imageFilePath },
   });
   return res.id;
 }
 
-async function apiUpscale(apiKey, imageFilePath) {
-  const res = await apiCall(apiKey, "/ai-image-upscaler", {
+async function apiUpscale(config, imageFilePath) {
+  const res = await apiCall(config, "/ai-image-upscaler", {
     scale_factor: 2,
     style: { enhancement: "Balanced" },
     assets: { image_file_path: imageFilePath },
@@ -252,19 +299,19 @@ async function apiUpscale(apiKey, imageFilePath) {
   return res.id;
 }
 
-async function apiClothesChange(apiKey, personFilePath, garmentFilePath) {
-  const res = await apiCall(apiKey, "/ai-clothes-changer", {
+async function apiClothesChange(config, personFilePath, garmentFilePath) {
+  const res = await apiCall(config, "/ai-clothes-changer", {
     assets: { person_file_path: personFilePath, garment_file_path: garmentFilePath },
   });
   return res.id;
 }
 
-async function apiCall(apiKey, endpoint, body, retries = 2) {
+async function apiCall(config, endpoint, body, retries = 2) {
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(API_BASE + endpoint, {
+    const res = await fetch(config.baseUrl + endpoint, {
       method: "POST",
       headers: {
-        Authorization: "Bearer " + apiKey,
+        ...config.headers,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -281,11 +328,11 @@ async function apiCall(apiKey, endpoint, body, retries = 2) {
   }
 }
 
-async function pollForResult(apiKey, projectId, maxAttempts = 60) {
+async function pollForResult(config, projectId, maxAttempts = 60) {
   for (let i = 0; i < maxAttempts; i++) {
     await sleep(2000);
-    const res = await fetch(API_BASE + "/image-projects/" + projectId, {
-      headers: { Authorization: "Bearer " + apiKey },
+    const res = await fetch(config.baseUrl + "/image-projects/" + projectId, {
+      headers: config.headers,
     });
     if (!res.ok) throw new Error("Poll failed: " + res.statusText);
     const data = await res.json();
@@ -300,19 +347,17 @@ async function pollForResult(apiKey, projectId, maxAttempts = 60) {
 
 // ─── File Upload ───
 
-async function uploadFromUrl(apiKey, url) {
+async function uploadFromUrl(config, url) {
   const blob = await fetchAsBlob(url);
-  return uploadBlob(apiKey, blob);
+  return uploadBlob(config, blob);
 }
 
 async function fetchAsBlob(url) {
-  // If it's already a data URL, convert directly to blob
   if (url.startsWith("data:")) {
     const res = await fetch(url);
     return res.blob();
   }
 
-  // Try fetch with headers that CDNs expect
   const headers = {
     "Accept": "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
   };
@@ -321,7 +366,6 @@ async function fetchAsBlob(url) {
   try {
     res = await fetch(url, { headers });
   } catch (e) {
-    // Retry without headers
     try {
       res = await fetch(url);
     } catch (e2) {
@@ -333,7 +377,7 @@ async function fetchAsBlob(url) {
   return res.blob();
 }
 
-async function uploadBlob(apiKey, blob) {
+async function uploadBlob(config, blob) {
   const mimeMap = {
     "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
     "image/webp": "webp", "image/gif": "gif", "image/heic": "heic",
@@ -341,10 +385,10 @@ async function uploadBlob(apiKey, blob) {
   };
   const ext = mimeMap[blob.type] || "png";
 
-  const res = await fetch(API_BASE + "/files/upload-urls", {
+  const res = await fetch(config.baseUrl + "/files/upload-urls", {
     method: "POST",
     headers: {
-      Authorization: "Bearer " + apiKey,
+      ...config.headers,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ items: [{ type: "image", extension: ext }] }),

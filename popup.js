@@ -56,6 +56,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupFileUploads();
   setupSettings();
   setupTransform();
+
+  // Show free credits if no API key
+  updateCreditsDisplay(settings);
 });
 
 // Listen for image selection messages from content script
@@ -280,11 +283,6 @@ async function startTransform() {
     customPrompt: settings.customPrompt,
   });
 
-  if (!settings.apiKey) {
-    alert("Add your MagicHour API key in settings first.");
-    return;
-  }
-
   isTransforming = true;
   $("#transformBtn .btn-text").style.display = "none";
   $("#transformBtn .btn-loading").style.display = "inline-flex";
@@ -306,10 +304,6 @@ async function startTransform() {
 
 async function startTransformAll() {
   const stored = await getSettings();
-  if (!stored.apiKey) {
-    alert("Add your MagicHour API key in settings first.");
-    return;
-  }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) {
@@ -426,6 +420,31 @@ async function checkAutoStatus() {
   }
 
   panel.innerHTML = lines.join("");
+}
+
+// ─── Credits Display ───
+
+async function updateCreditsDisplay(settings) {
+  const el = $("#creditsInfo");
+  const text = $("#creditsText");
+  if (settings && settings.apiKey) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "block";
+  text.textContent = "Loading credits...";
+  try {
+    const credits = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: "getCredits" }, resolve);
+    });
+    if (credits.remaining > 0) {
+      text.innerHTML = `<span class="credits-count">${credits.remaining}/${credits.limit}</span> free transforms remaining today`;
+    } else {
+      text.innerHTML = `<span class="credits-limit">Daily free limit reached.</span> Add an API key in settings for unlimited use.`;
+    }
+  } catch {
+    text.textContent = "Free tier available — no API key needed";
+  }
 }
 
 // ─── Storage Helpers ───
