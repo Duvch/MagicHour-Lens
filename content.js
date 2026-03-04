@@ -558,6 +558,8 @@ function mhAutoScan() {
 function mhAutoMaybeQueue(img, minSize) {
   if (!mhAutoEnabled) return;
   if (!img.src || img.src.startsWith("data:") || img.src.startsWith("blob:")) return;
+  // Skip unsupported formats
+  if (/\.(gif|svg|ico)(\?|$)/i.test(img.src)) return;
   if (img.getAttribute("data-mh-auto")) return;
 
   // Check size using both natural and offset dimensions

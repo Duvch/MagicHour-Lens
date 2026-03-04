@@ -259,20 +259,26 @@ async function apiClothesChange(apiKey, personFilePath, garmentFilePath) {
   return res.id;
 }
 
-async function apiCall(apiKey, endpoint, body) {
-  const res = await fetch(API_BASE + endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || "API error: " + res.status + " " + res.statusText);
+async function apiCall(apiKey, endpoint, body, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(API_BASE + endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status >= 500 && attempt < retries) {
+      await sleep(1000 * (attempt + 1));
+      continue;
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || "API error: " + res.status + " " + res.statusText);
+    }
+    return res.json();
   }
-  return res.json();
 }
 
 async function pollForResult(apiKey, projectId, maxAttempts = 60) {
