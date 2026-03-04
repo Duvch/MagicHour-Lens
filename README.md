@@ -21,4 +21,4 @@ Transform any image on the web — face swap, style transfer, AI edits & more. A
 
 ## Contributors
 
-- [Duvch](https://github.com/Duvch) — Creator & maintainer
+- Divyansh Chauhan [Duvch](https://github.com/Duvch) — Creator & maintainer
